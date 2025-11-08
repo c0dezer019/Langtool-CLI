@@ -1,35 +1,102 @@
 #!/bin/bash
 
 PORT=8081
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID="/tmp/langtool.pid"
-LANGTOOL_JAR="$HOME/.local/share/LanguageTool-6.7-SNAPSHOT/languagetool-server.jar"
-LANGTOOL_ROOT="$HOME/.local/share/LanguageTool-6.7-SNAPSHOT"
+
+if [ -z "$LT_VER" ]; then
+	LT_VER="6.8"
+fi
+
+if [ -z "$HOME" ]; then
+	echo "HOME is broke, please set it before being able to use"
+	exit 1
+fi
+
+if [ -z "$LT_INSTALL_DIR" ]; then
+	echo "Langtool-cli cannot execute commands if it doesn't know where LT is \
+		installed. You need to set LT_INSTALL_DIR before using."
+	exit 1
+fi
+
+LANGTOOL="$(find "$LT_INSTALL_DIR" -type d -name \
+	"LanguageTool-$LT_VER-SNAPSHOT")"
+LANGTOOL_JAR="$LANGTOOL/languagetool-server.jar"
+
+install_lt() {
+	mkdir "$LT_INSTALL_DIR/src"
+	curl -Lo "$LT_INSTALL_DIR/src/LanguageTool-${1}-snapshot.zip" \
+	"https://internal1.languagetool.org/snapshots/LanguageTool-${1}-snapshot.zip"
+
+	if ! command -v unzip &>/dev/null; then
+		read -rp "unzip must be installed to continue. Install? [y/n]" ans
+
+		case "${ans,,}" in
+			y|yes)
+				if command -v apt-get >/dev/null 2>&1; then
+					sudo apt-get update && sudo apt-get install -y unzip
+				elif command -v dnf >/dev/null 2>&1; then
+					sudo dnf install -y unzip
+				elif command -v yum >/dev/null 2>&1; then
+					sudo yum install -y unzip
+				elif command -v pacman >/dev/null 2>&1; then
+					sudo pacman -Sy unzip
+				else
+					echo "Could not detect a supported package manager. Please install 'unzip' manually."
+					exit 1
+				fi
+				;;
+			*)
+				echo "unzip is required to continue"
+				exit 1
+				;;
+		esac
+	else
+		unzip -u "$LT_INSTALL_DIR/LanguageTool-${1}-snapshot.zip" \
+			-d "$LT_INSTALL_DIR"
+	fi
+}
 
 is_running() {
 	[ -f "$PID" ] && ps -p "$(cat "$PID")" > /dev/null 2>&1
 }
 
+
 start_langtool() {
+	case "$1" in
+		-v|--version=*)
+			LANGTOOL="$(find "$LT_INSTALL_DIR" -type d -name \
+				"LanguageTOOL-$2-SNAPSHOT")"
+			;;
+	esac
+
 	if is_running; then
-		echo "LanguageTool is already running (PID $(cat "$PID"))"
+		echo "LanguageTool is already running (PID $(cat "$PID"))"m
 		return
 	fi
 
-	if [ $(cat "$HOME/.config/langtool/stopped.txt") = "stopped" ]; then
-		sed -i '1d' $HOME/.config/langtool/stopped.txt
+	if [ "$(cat "$HOME/.config/langtool/stopped.txt")" = "stopped" ]; then
+		sed -i '1d' "$HOME"/.config/langtool/stopped.txt
 	fi
 
-	echo "Starting LanguageTool"
-	java -cp $LANGTOOL_JAR org.languagetool.server.HTTPServer \
- 		--config $LANGTOOL_ROOT/server.properties \
+	echo "> Starting LanguageTool-${LT_VER}..."
+	java -cp "$LANGTOOL_JAR" org.languagetool.server.HTTPServer \
+ 		--config "$LANGTOOL"/server.properties \
   		--port $PORT \
   		--allow-origin \
-	 	> $LANGTOOL_ROOT/languagetool.log 2>&1 &
+	 	> "$LANGTOOL"/languagetool.log 2>&1 &
 	echo $! > $PID
-	echo "LanguageTool server started in background (PID: $!) at port $PORT."
-	echo "Log output: languagetool.log"
-	echo "To stop the server, run: langtool stop"
+
+	if is_running; then
+		echo "LanguageTool-${LT_VER} server started in background (PID: $!) \
+		at port $PORT."
+		echo "Log output: languagetool.log"
+		echo "To stop the server, run: langtool stop"
+	else
+		echo "LanguageTool-${LT_VER} failed to start."
+		echo
+		echo "Make sure that the selected port is available and that \
+		server.properties exists and is configured properly."
+	fi
 }
 
 stop_langtool() {
@@ -39,14 +106,16 @@ stop_langtool() {
 	fi
 	echo "Stopping LanguageTool..."
 	kill "$(cat "$PID")"
-	rm -f "$PID"
-	echo "Stopped."
-	echo "stopped" > $HOME/.config/langtool/stopped.txt
+
+	if ! is_running; then
+		rm -f "$PID"
+		echo "Stopped."
+	fi
 }
 
 case "$1" in
 	start)
-		start_langtool
+		start_langtool "$2"
 		;;
 	stop)
 		stop_langtool
@@ -64,5 +133,11 @@ case "$1" in
 		;;
 	*)
 		echo "Usage: $0 {start|stop|restart|status}"
+		;;
+esac
+
+case "$2" in
+	--init)
+
 		;;
 esac

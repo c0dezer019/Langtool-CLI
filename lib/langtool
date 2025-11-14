@@ -13,8 +13,9 @@ if [ -z "$HOME" ]; then
 fi
 
 if [ -z "$LT_INSTALL_DIR" ]; then
-	echo "Langtool-cli cannot execute commands if it doesn't know where LT is \
-		installed. You need to set LT_INSTALL_DIR before using."
+	echo "Langtool-cli cannot execute commands if it doesn't know where LT is\
+installed. You need to set LT_INSTALL_DIR before using."
+
 	exit 1
 fi
 

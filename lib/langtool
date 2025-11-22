@@ -24,9 +24,17 @@ LANGTOOL="$(find "$LT_INSTALL_DIR" -type d -name \
 LANGTOOL_JAR="$LANGTOOL/languagetool-server.jar"
 
 install_lt() {
+    local lt_ver
+
+    if [ ! -n "$1" ]; then
+        lt_ver="$1"
+    else
+        lt_ver=$LT_VER
+    fi
+
 	mkdir "$LT_INSTALL_DIR/src"
-	curl -Lo "$LT_INSTALL_DIR/src/LanguageTool-${1}-snapshot.zip" \
-	"https://internal1.languagetool.org/snapshots/LanguageTool-${1}-snapshot.zip"
+	curl -Lo "$LT_INSTALL_DIR/src/LanguageTool-${lt_ver}-snapshot.zip" \
+	"https://internal1.languagetool.org/snapshots/LanguageTool-${lt_ver}-snapshot.zip"
 
 	if ! command -v unzip &>/dev/null; then
 		read -rp "unzip must be installed to continue. Install? [y/n]" ans
@@ -132,8 +140,13 @@ case "$1" in
 			echo "LanguageTool not running."
 		fi
 		;;
+	help|--help|-h)
+		SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+		bash "$SCRIPT_DIR/help.sh"
+		;;
 	*)
-		echo "Usage: $0 {start|stop|restart|status}"
+		echo "Usage: $0 {start|stop|restart|status|help}"
+		echo "Run '$0 help' for more information."
 		;;
 esac
 

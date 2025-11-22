@@ -8,6 +8,9 @@ USAGE:
     langtool <command> [options]
 
 COMMANDS:
+    install [version]
+                Install LanguageTool (downloads and extracts server files)
+                Optional: Specify version (defaults to $LT_VER or 6.8)
     start       Start the LanguageTool server in the background
     stop        Stop the running LanguageTool server
     restart     Restart the LanguageTool server
@@ -33,6 +36,12 @@ CONFIGURATION:
     Logs are written to: $LT_INSTALL_DIR/LanguageTool-$LT_VER-SNAPSHOT/languagetool.log
 
 EXAMPLES:
+    # Install LanguageTool (default version)
+    langtool install
+
+    # Install a specific version
+    langtool install 6.9
+
     # Start the server
     langtool start
 
@@ -42,7 +51,7 @@ EXAMPLES:
     # Stop the server
     langtool stop
 
-    # Use a different version
+    # Use a different version for starting
     LT_VER="6.9" langtool start
 
 SETUP:

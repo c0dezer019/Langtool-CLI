@@ -4,7 +4,7 @@ PORT=8081
 PID="/tmp/langtool.pid"
 
 if [ -z "$LT_VER" ]; then
-	LT_VER="6.8"
+	LT_VER="latest"
 fi
 
 if [ -z "$HOME" ]; then
@@ -33,8 +33,15 @@ install_lt() {
     fi
 
 	mkdir -p "$LT_INSTALL_DIR/src"
-	curl -Lo "$LT_INSTALL_DIR/src/LanguageTool-${lt_ver}-snapshot.zip" \
-	"https://internal1.languagetool.org/snapshots/LanguageTool-${lt_ver}-snapshot.zip"
+
+	echo "Downloading LanguageTool ${lt_ver} snapshot..."
+	if ! curl -fLo "$LT_INSTALL_DIR/src/LanguageTool-${lt_ver}-snapshot.zip" \
+		"https://internal1.languagetool.org/snapshots/LanguageTool-${lt_ver}-snapshot.zip"; then
+		echo "Error: Failed to download LanguageTool snapshot."
+		echo "Please check your internet connection or try a different version."
+		echo "Available versions: 'latest' or a date like '20251121'"
+		exit 1
+	fi
 
 	if ! command -v unzip &>/dev/null; then
 		read -rp "unzip must be installed to continue. Install? [y/n] " ans
@@ -61,8 +68,30 @@ install_lt() {
 		esac
 	fi
 
-	unzip -u "$LT_INSTALL_DIR/src/LanguageTool-${lt_ver}-snapshot.zip" \
-		-d "$LT_INSTALL_DIR"
+	echo "Extracting LanguageTool..."
+	if ! unzip -u "$LT_INSTALL_DIR/src/LanguageTool-${lt_ver}-snapshot.zip" \
+		-d "$LT_INSTALL_DIR"; then
+		echo "Error: Failed to extract LanguageTool archive."
+		exit 1
+	fi
+
+	# Find the extracted directory (will be like LanguageTool-6.8-SNAPSHOT or LanguageTool-20251121-SNAPSHOT)
+	local extracted_dir
+	extracted_dir=$(find "$LT_INSTALL_DIR" -maxdepth 1 -type d -name "LanguageTool-*-SNAPSHOT" | head -n 1)
+
+	if [ -z "$extracted_dir" ]; then
+		echo "Error: Could not find extracted LanguageTool directory."
+		exit 1
+	fi
+
+	# Create a symlink with the expected version name if it doesn't exist
+	local expected_dir="$LT_INSTALL_DIR/LanguageTool-${lt_ver}-SNAPSHOT"
+	if [ ! -e "$expected_dir" ]; then
+		ln -sf "$extracted_dir" "$expected_dir"
+		echo "Installation complete! LanguageTool installed at: $expected_dir"
+	else
+		echo "Installation complete! LanguageTool installed at: $extracted_dir"
+	fi
 }
 
 is_running() {

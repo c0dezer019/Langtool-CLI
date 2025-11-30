@@ -205,6 +205,63 @@ install_lt() {
 	else
 		echo "Installation complete! LanguageTool installed at: $extracted_dir"
 	fi
+
+	# Create server.properties file if it doesn't exist
+	local install_path="$expected_dir"
+	if [ ! -e "$install_path" ]; then
+		install_path="$extracted_dir"
+	fi
+
+	local properties_file="$install_path/server.properties"
+	if [ ! -f "$properties_file" ]; then
+		echo "Creating server.properties configuration file..."
+		cat > "$properties_file" << 'EOF'
+# LanguageTool Server Configuration
+# See https://dev.languagetool.org/http-server for more options
+
+# Maximum text length in characters (default: 50000)
+maxTextLength=50000
+
+# Maximum check time in milliseconds (default: unlimited, -1)
+# Set to prevent long-running checks from consuming resources
+maxCheckTimeMillis=60000
+
+# Request size limit in bytes (default: unlimited)
+# maxTextHardLength=100000
+
+# Cache size for storing check results (default: 0, disabled)
+# Enables caching to improve performance for repeated checks
+cacheSize=10000
+
+# Maximum number of parallel threads (default: 10)
+# Adjust based on your system's CPU cores
+maxWorkQueueSize=25
+
+# Enable verbose mode for debugging (default: false)
+# verbose=false
+
+# Mode: LanguageTool mode (default: LT)
+# Options: LT (LanguageTool), LanguageTool, AfterTheDeadline
+# mode=LT
+
+# Disable certain categories (comma-separated)
+# Example: disabledRuleCategories=CASING,TYPOGRAPHY
+
+# Disable specific rules (comma-separated)
+# Example: disabledRules=EN_QUOTES
+
+# Enable premium checks (requires API key)
+# premiumOnly=false
+# pipelineCaching=true
+
+# Trust X-Forwarded-For header for IP detection (default: false)
+# trustXForwardForHeader=false
+EOF
+		echo "Created default server.properties at: $properties_file"
+		echo "You can customize this file to adjust server settings."
+	else
+		echo "server.properties already exists at: $properties_file"
+	fi
 }
 
 is_running() {
@@ -292,11 +349,5 @@ case "$1" in
 	*)
 		echo "Usage: $0 {install|start|stop|restart|status|help}"
 		echo "Run '$0 help' for more information."
-		;;
-esac
-
-case "$2" in
-	--init)
-
 		;;
 esac

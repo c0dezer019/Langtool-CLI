@@ -1,0 +1,302 @@
+#!/bin/bash
+
+PORT=8081
+PID="/tmp/langtool.pid"
+
+if [ -z "$LT_VER" ]; then
+	LT_VER="latest"
+fi
+
+if [ -z "$HOME" ]; then
+	echo "HOME is broke, please set it before being able to use"
+	exit 1
+fi
+
+if [ -z "$LT_INSTALL_DIR" ]; then
+	echo "Langtool-cli cannot execute commands if it doesn't know where LT is\
+installed. You need to set LT_INSTALL_DIR before using."
+
+	exit 1
+fi
+
+LANGTOOL="$(find "$LT_INSTALL_DIR" -type d -name \
+	"LanguageTool-$LT_VER-SNAPSHOT")"
+LANGTOOL_JAR="$LANGTOOL/languagetool-server.jar"
+
+install_lt() {
+    local lt_ver
+
+    if [ -n "$1" ]; then
+        lt_ver="$1"
+    else
+        lt_ver=$LT_VER
+    fi
+
+	# Ensure the installation directory exists with proper permissions
+	if ! mkdir -p "$LT_INSTALL_DIR/src" 2>/dev/null; then
+		echo "Error: Failed to create directory $LT_INSTALL_DIR/src"
+		echo "Please check that you have write permissions to this location."
+		echo "You may need to run: mkdir -p \"$LT_INSTALL_DIR/src\""
+		exit 1
+	fi
+
+	# Verify we can write to the directory
+	if [ ! -w "$LT_INSTALL_DIR/src" ]; then
+		echo "Error: Cannot write to directory $LT_INSTALL_DIR/src"
+		echo "Please check permissions: ls -ld \"$LT_INSTALL_DIR/src\""
+		exit 1
+	fi
+
+	local download_url="https://internal1.languagetool.org/snapshots/LanguageTool-${lt_ver}-snapshot.zip"
+	local output_file="$LT_INSTALL_DIR/src/LanguageTool-${lt_ver}-snapshot.zip"
+
+	# Remove any existing partial or corrupted downloads
+	if [ -f "$output_file" ]; then
+		echo "Removing existing download file..."
+		rm -f "$output_file"
+	fi
+
+	# Remove aria2c control files that might cause issues
+	rm -f "${output_file}.aria2" 2>/dev/null
+
+	echo "Downloading LanguageTool ${lt_ver} snapshot..."
+
+	# Check if aria2c is available for faster multi-connection downloads
+	if command -v aria2c &>/dev/null; then
+		# Check if aria2c is a snap package (which has file access restrictions)
+		if [[ "$(which aria2c)" == /snap/* ]]; then
+			echo "Warning: aria2c is installed as a snap package, which has file access restrictions."
+			echo "Falling back to curl for reliable downloads."
+			echo "For faster downloads, install aria2c via apt: sudo apt install aria2"
+
+			# Use optimized curl with compression, resume capability, HTTP/2, and progress bar
+			if ! curl -fL# --compressed -C - --http2 -o "$output_file" "$download_url"; then
+				echo "Error: Failed to download LanguageTool snapshot."
+				echo "Please check your internet connection or try a different version."
+				echo "Available versions: 'latest' or a date like '20251121'"
+				exit 1
+			fi
+		else
+			echo "Using aria2c for faster parallel download..."
+			if ! aria2c -x 8 -s 8 --file-allocation=none --allow-overwrite=true \
+				--auto-file-renaming=false \
+				-d "$(dirname "$output_file")" -o "$(basename "$output_file")" \
+				"$download_url"; then
+				echo "Error: Failed to download LanguageTool snapshot with aria2c."
+				echo "Please check your internet connection or try a different version."
+				echo "Available versions: 'latest' or a date like '20251121'"
+				exit 1
+			fi
+		fi
+	else
+		# Offer to install aria2c for faster downloads
+		echo "Note: aria2c can speed up downloads significantly with parallel connections."
+		read -rp "Install aria2c for faster downloads? [y/n] " ans
+
+		case "${ans,,}" in
+			y|yes)
+				if command -v apt-get >/dev/null 2>&1; then
+					sudo apt-get update && sudo apt-get install -y aria2
+				elif command -v dnf >/dev/null 2>&1; then
+					sudo dnf install -y aria2
+				elif command -v yum >/dev/null 2>&1; then
+					sudo yum install -y aria2
+				elif command -v pacman >/dev/null 2>&1; then
+					sudo pacman -Sy aria2
+				else
+					echo "Could not detect a supported package manager. Continuing with curl..."
+				fi
+
+				# Retry with aria2c if installation succeeded
+				if command -v aria2c &>/dev/null; then
+					# Check if aria2c is a snap package (which has file access restrictions)
+					if [[ "$(which aria2c)" == /snap/* ]]; then
+						echo "Warning: aria2c is installed as a snap package, which has file access restrictions."
+						echo "Falling back to curl for reliable downloads."
+
+						# Fall back to optimized curl
+						if ! curl -fL# --compressed -C - --http2 -o "$output_file" "$download_url"; then
+							echo "Error: Failed to download LanguageTool snapshot."
+							echo "Please check your internet connection or try a different version."
+							echo "Available versions: 'latest' or a date like '20251121'"
+							exit 1
+						fi
+					else
+						echo "Using aria2c for faster parallel download..."
+						if ! aria2c -x 8 -s 8 --file-allocation=none --allow-overwrite=true \
+							--auto-file-renaming=false \
+							-d "$(dirname "$output_file")" -o "$(basename "$output_file")" \
+							"$download_url"; then
+							echo "Error: Failed to download LanguageTool snapshot with aria2c."
+							echo "Please check your internet connection or try a different version."
+							exit 1
+						fi
+					fi
+				else
+					# Fall back to optimized curl
+					echo "Falling back to optimized curl..."
+					if ! curl -fL# --compressed -C - --http2 -o "$output_file" "$download_url"; then
+						echo "Error: Failed to download LanguageTool snapshot."
+						echo "Please check your internet connection or try a different version."
+						echo "Available versions: 'latest' or a date like '20251121'"
+						exit 1
+					fi
+				fi
+				;;
+			*)
+				# Use optimized curl with compression, resume capability, HTTP/2, and progress bar
+				echo "Using optimized curl (with compression and HTTP/2)..."
+				if ! curl -fL# --compressed -C - --http2 -o "$output_file" "$download_url"; then
+					echo "Error: Failed to download LanguageTool snapshot."
+					echo "Please check your internet connection or try a different version."
+					echo "Available versions: 'latest' or a date like '20251121'"
+					exit 1
+				fi
+				;;
+		esac
+	fi
+
+	if ! command -v unzip &>/dev/null; then
+		read -rp "unzip must be installed to continue. Install? [y/n] " ans
+
+		case "${ans,,}" in
+			y|yes)
+				if command -v apt-get >/dev/null 2>&1; then
+					sudo apt-get update && sudo apt-get install -y unzip
+				elif command -v dnf >/dev/null 2>&1; then
+					sudo dnf install -y unzip
+				elif command -v yum >/dev/null 2>&1; then
+					sudo yum install -y unzip
+				elif command -v pacman >/dev/null 2>&1; then
+					sudo pacman -Sy unzip
+				else
+					echo "Could not detect a supported package manager. Please install 'unzip' manually."
+					exit 1
+				fi
+				;;
+			*)
+				echo "unzip is required to continue"
+				exit 1
+				;;
+		esac
+	fi
+
+	echo "Extracting LanguageTool..."
+	if ! unzip -u "$LT_INSTALL_DIR/src/LanguageTool-${lt_ver}-snapshot.zip" \
+		-d "$LT_INSTALL_DIR"; then
+		echo "Error: Failed to extract LanguageTool archive."
+		exit 1
+	fi
+
+	# Find the extracted directory (will be like LanguageTool-6.8-SNAPSHOT or LanguageTool-20251121-SNAPSHOT)
+	local extracted_dir
+	extracted_dir=$(find "$LT_INSTALL_DIR" -maxdepth 1 -type d -name "LanguageTool-*-SNAPSHOT" | head -n 1)
+
+	if [ -z "$extracted_dir" ]; then
+		echo "Error: Could not find extracted LanguageTool directory."
+		exit 1
+	fi
+
+	# Create a symlink with the expected version name if it doesn't exist
+	local expected_dir="$LT_INSTALL_DIR/LanguageTool-${lt_ver}-SNAPSHOT"
+	if [ ! -e "$expected_dir" ]; then
+		ln -sf "$extracted_dir" "$expected_dir"
+		echo "Installation complete! LanguageTool installed at: $expected_dir"
+	else
+		echo "Installation complete! LanguageTool installed at: $extracted_dir"
+	fi
+}
+
+is_running() {
+	[ -f "$PID" ] && ps -p "$(cat "$PID")" > /dev/null 2>&1
+}
+
+
+start_langtool() {
+	case "$1" in
+		-v|--version=*)
+			LANGTOOL="$(find "$LT_INSTALL_DIR" -type d -name \
+				"LanguageTOOL-$2-SNAPSHOT")"
+			;;
+	esac
+
+	if is_running; then
+		echo "LanguageTool is already running (PID $(cat "$PID"))"m
+		return
+	fi
+
+	if [ "$(cat "$HOME/.config/langtool/stopped.txt")" = "stopped" ]; then
+		sed -i '1d' "$HOME"/.config/langtool/stopped.txt
+	fi
+
+	echo "> Starting LanguageTool-${LT_VER}..."
+	java -cp "$LANGTOOL_JAR" org.languagetool.server.HTTPServer \
+ 		--config "$LANGTOOL"/server.properties \
+  		--port $PORT \
+  		--allow-origin \
+	 	> "$LANGTOOL"/languagetool.log 2>&1 &
+	echo $! > $PID
+
+	if is_running; then
+		echo "LanguageTool-${LT_VER} server started in background (PID: $!) \
+		at port $PORT."
+		echo "Log output: languagetool.log"
+		echo "To stop the server, run: langtool stop"
+	else
+		echo "LanguageTool-${LT_VER} failed to start."
+		echo
+		echo "Make sure that the selected port is available and that \
+		server.properties exists and is configured properly."
+	fi
+}
+
+stop_langtool() {
+	if ! is_running; then
+		echo "LanguageTool is not running."
+		return
+	fi
+	echo "Stopping LanguageTool..."
+	kill "$(cat "$PID")"
+
+	if ! is_running; then
+		rm -f "$PID"
+		echo "Stopped."
+	fi
+}
+
+case "$1" in
+    install)
+        install_lt "$2"
+        ;;
+	start)
+		start_langtool "$2"
+		;;
+	stop)
+		stop_langtool
+		;;
+	restart)
+		stop_langtool
+		start_langtool
+		;;
+	status)
+		if is_running; then
+			echo "LanguageTool running (PID $(cat "$PID"))."
+		else
+			echo "LanguageTool not running."
+		fi
+		;;
+	help|--help|-h)
+		SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+		bash "$SCRIPT_DIR/help.sh"
+		;;
+	*)
+		echo "Usage: $0 {install|start|stop|restart|status|help}"
+		echo "Run '$0 help' for more information."
+		;;
+esac
+
+case "$2" in
+	--init)
+
+		;;
+esac
